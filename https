@@ -1,1 +1,157 @@
 
+sudo apt install apache2
+sudo systemctl status apache2
+
+TESTING THE WEB SERVER
+Use a web browser, e.g. lynx, wget, to access the web server by IP address. For example, if the web server has IP address 66.228.58.29:
+
+lynx http://66.228.58.29/
+
+CREATING FAKE DOMAIN NAMES
+As we do not have a real DNS server, we are limited to using just IP addresses to other computers. However you may manually setup fake domain names by editing the /etc/hosts file on all computers. For example, if the web server has IP address 192.168.2.22, on the client we can add the following line to /etc/hosts:
+
+192.168.2.22   www.example.com
+
+OVERVIEW FOR HTTPS AND CERTIFICATES
+The remaining steps are enabling HTTPS and creating a certificate for the web server. In the following instructions we assume the IP of the server is 192.168.2.22 and of the client is 192.168.1.11. The domain of the server is www.example.com. The steps are:
+
+Create our own Certificate Authority (CA) on the server. In a real scenario this step would be skipped. Instead we would use another organisation as CA.
+Create a certificate for our web server.
+Enable HTTPS in Apache.
+Load the CA certificate in the client. In a real scenario this step would be skipped. Instead if we use a common CA, the certificate would already be load. It is only needed since we are using our own private CA.
+Finally we can test HTTPS using a web browser.
+
+HTTPS STEP 1: CREATE A CERTIFICATE AUTHORITY
+In practice, a Certificate Authority (CA) would be an external node. However for this simple demo we will use server as both the CA and the actual web server. So now lets setup the CA on the server.
+
+First our root CA needs its own, self-signed certificate. Generate a RSA public/private key pair. Here we generate a 20148-bit RSA private key using a public exponent (e) of 65537. The key is NOT encrypted with DES (or other ciphers).
+
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -pkeyopt rsa_keygen_pubexp:65537 -out cakey.pem
+
+Next create a self-signed certificate. Enter the details for your CA.
+
+openssl req -new -x509 -key cakey.pem -out cacert.pem -days 1095
+You will be prompted for information and should set appropriate values, such as:
+Country Name: AU
+State: your state, e.g. Qld, NSW
+Locality: your city, e.g. Cairns, Sydney
+Organisation Name: your choice, e.g. CQUniversity or make a name up
+Unit: Certificate Authority
+Common Name: a (fake) domain, e.g. www.cquni.edu
+Email address: a (fake) address, e.g. ca@cquni.edu
+Now we setup the CA to handle certificate signing requests from other entities (i.e. our web server). OpenSSL uses some default files and directories, which are specified in /usr/lib/ssl/openssl.cnf. Lets create them with the following commands:
+
+cd
+mkdir demoCA
+mkdir demoCA/certs
+mkdir demoCA/crl
+mkdir demoCA/newcerts
+mkdir demoCA/private
+touch demoCA/index.txt
+echo 02 > demoCA/serial
+mv cacert.pem demoCA/
+mv cakey.pem demoCA/private
+The above commands create the necessary directory structure to run a CA. If you make a mistake, then the CA will not be able to correctly issue certificates. In that case, the best approach is to delete the entire demoCA directory (rm -fR ~/demoCA/) and repeat the above commands.
+
+Lastly for the CA setup, OpenSSL has strict policies on the details of the CA matching that of the requesting server. For example, it requires the state of the CA and server to be identical. We can change the policy by editing /usr/lib/ssl/openssl.cnf, in particular the "For the CA policy" section. Edit the configuration file:
+
+sudo vi /usr/lib/ssl/openssl.cnf
+Find the section "For the CA policy". Change the values to look like this:
+
+# For the CA policy
+[ policy_match ]
+countryName             = match
+stateOrProvinceName     = optional
+organizationName        = optional
+organizationalUnitName  = optional
+commonName              = supplied
+emailAddress            = optional
+Now the CA is setup and ready to process certificate signing requests.
+
+HTTPS STEP 2: CREATE A CERTIFICATE FOR OUR WEB SERVER
+To create a certificate for the www.example.com website, first generate a RSA public/private key pair. Here we generate a 2048-bit RSA private key using a public exponent (e) of 65537. The key is NOT encrypted with DES (or other ciphers).
+
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -pkeyopt rsa_keygen_pubexp:65537 -out privkey-www.example.com.pem
+The output file (privkey-www.example.com.pem) is plaintext. It contains the private key, encoded as Base64, in between two lines indicating the begin and end of the key.
+Next create a certificate request that will be sent to the Certificate Authority. This takes a private key as input (i.e. the file generated above) and produces a .csr certificate request file as output. This is a new certificate request.
+
+openssl req -new -key privkey-www.example.com.pem -out certreq-www.example.com.csr
+You will be prompted to enter your certificate information:
+Country Name: AU
+State: your state, e.g. Qld, NSW
+Locality: your city, e.g. Cairns, Sydney
+Organisation Name: your choice, e.g. Example Company
+Unit: optional
+Common Name: the same domain name that you will give your website, e.g. www.example.com
+Email address: a (fake) address, e.g. webmaster@example.com
+You will also be prompted for a challenge password. You do NOT want a password - just press ENTER to continue. The value of Common Name MUST be the domain of the website, e.g. www.example.edu. The other values may be different, depending on the policy of the OpenSSL CA.
+
+Send your certificate request file to the CA. Since in this demo both the server and CA are on the same Linux VM, there is no actual sending (the file already is available to the CA).
+
+Now the CA processes the certificate signing request using the following command. Make sure all the file names are correct and the certificate is successfully committed to the database of the CA.
+
+openssl ca -in certreq-www.example.com.csr -out cert-www.example.com.pem
+The CA will be prompted to sign the certificate (choose y for yes) and commit to the database (choose y for yes).
+
+Finally lets copy the CA's certificate from the demoCA directory, renaming the extension to .crt (which is expected by Apache).
+
+cp demoCA/cacert.pem cert-ourca.crt
+To check all the steps were successful, verify the server certificate:
+
+openssl verify -CAfile cert-ourca.crt cert-www.example.com.pem
+The output should show OK, e.g.:
+
+cert-www.example.com.pem: OK
+
+
+HTTPS STEP 3: ENABLE HTTPS IN APACHE
+Now you need to enable HTTPS in Apache, including making both certificates available. First lets copy the files into appropriate directories for Apache to read:
+
+sudo cp cert-www.example.com.pem /etc/ssl/certs/
+sudo cp cert-ourca.crt /etc/ssl/certs/
+sudo cp privkey-www.example.com.pem /etc/ssl/private/
+You should set the permissions on the private key so that no-one else can access it (i.e. only root can).
+
+Now edit the configuration file for the SSL enable website:
+
+sudo vi /etc/apache2/sites-available/default-ssl.conf
+You need to add in the following line (after the ServerAdmin line):
+
+ServerName www.example.com:443
+And you need to comment out the snakeoil certificates and add in three lines:
+
+# SSLCertificateFile      /etc/ssl/certs/ssl-cert-snakeoil.pem
+# SSLCertificateKeyFile /etc/ssl/private/ssl-cert-snakeoil.key
+SSLCertificateFile    /etc/ssl/certs/cert-www.example.com.pem
+SSLCertificateKeyFile /etc/ssl/private/privkey-www.example.com.pem
+SSLCACertificateFile /etc/ssl/certs/cert-ourca.crt
+Finally, enable the SSL module, the SSL-based website and restart the server:
+
+sudo a2enmod ssl
+sudo a2ensite default-ssl
+sudo systemctl reload apache2
+You can now try testing access to the website with lynx on the client.
+
+
+HTTPS STEP 4: LOAD THE CA CERTIFICATE IN THE CLIENT
+Although the web server has its own certificate, signed by a CA, we still get a warning message when accessing the web site from the client. This is because the client (192.168.1.11 in our example) does not trust the CA that signed the servers certificate. We will now add the CA's certificate to the list of CA certificates trusted by the client.
+
+Perform the following on the client.
+
+Copy the CA's certificate from the server to the client (change the IP address and directory as necessary):
+
+scp 192.168.2.22:/home/steven/cert-ourca.crt .
+Ubuntu keeps are store of trusted CA's certificates, which is used by lynx when it accesses websites. We need to create a directory for extra CA's, add our CA's certificate to it, and then re-configure the store to include the new certificate:
+
+sudo mkdir /usr/share/ca-certificates/extra
+sudo cp cert-ourca.crt /usr/share/ca-certificates/extra/
+sudo dpkg-reconfigure ca-certificates
+After running the dpkg-reconfigure command you will be given several options about trust - choose the default - and then presented with a list of CA's. Scroll down to the bottom until you find cert-ourca.crt and then mark it by pressing space. Then ok.
+
+That's it. Now test again with lynx and you should find no errors/warnings when connecting to the secure web server.
+
+TESTING OUR WEB SERVER
+Of course you can use your web browser on node1 (e.g. lynx) to access the website. You can also test using openssl directly on the client:
+
+openssl s_client -connect www.example.com:443
+Press Ctrl-C to exit. This command should show details of the certificate and SSL communications.
