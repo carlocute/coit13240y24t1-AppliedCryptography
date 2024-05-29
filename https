@@ -10,10 +10,10 @@ lynx http://66.228.58.29/
 CREATING FAKE DOMAIN NAMES
 As we do not have a real DNS server, we are limited to using just IP addresses to other computers. However you may manually setup fake domain names by editing the /etc/hosts file on all computers. For example, if the web server has IP address 192.168.2.22, on the client we can add the following line to /etc/hosts:
 
-192.168.2.22   www.example.com
+66.228.58.29   www.example.com
 
 OVERVIEW FOR HTTPS AND CERTIFICATES
-The remaining steps are enabling HTTPS and creating a certificate for the web server. In the following instructions we assume the IP of the server is 192.168.2.22 and of the client is 192.168.1.11. The domain of the server is www.example.com. The steps are:
+The remaining steps are enabling HTTPS and creating a certificate for the web server. In the following instructions we assume the IP of the server is 66.228.58.29 and of the client is 45.79.205.105. The domain of the server is www.example.com. The steps are:
 
 Create our own Certificate Authority (CA) on the server. In a real scenario this step would be skipped. Instead we would use another organisation as CA.
 Create a certificate for our web server.
@@ -116,7 +116,7 @@ Now edit the configuration file for the SSL enable website:
 
 sudo vi /etc/apache2/sites-available/default-ssl.conf
 You need to add in the following line (after the ServerAdmin line):
-
+https://www.youtube.com/watch?v=otxVNGWRNxk
 ServerName www.example.com:443
 And you need to comment out the snakeoil certificates and add in three lines:
 
@@ -134,13 +134,13 @@ You can now try testing access to the website with lynx on the client.
 
 
 HTTPS STEP 4: LOAD THE CA CERTIFICATE IN THE CLIENT
-Although the web server has its own certificate, signed by a CA, we still get a warning message when accessing the web site from the client. This is because the client (192.168.1.11 in our example) does not trust the CA that signed the servers certificate. We will now add the CA's certificate to the list of CA certificates trusted by the client.
+Although the web server has its own certificate, signed by a CA, we still get a warning message when accessing the web site from the client. This is because the client (66.228.58.29 in our example) does not trust the CA that signed the servers certificate. We will now add the CA's certificate to the list of CA certificates trusted by the client.
 
 Perform the following on the client.
 
 Copy the CA's certificate from the server to the client (change the IP address and directory as necessary):
 
-scp 192.168.2.22:/home/steven/cert-ourca.crt .
+scp 66.228.58.29:/home/cert-ourca.crt .
 Ubuntu keeps are store of trusted CA's certificates, which is used by lynx when it accesses websites. We need to create a directory for extra CA's, add our CA's certificate to it, and then re-configure the store to include the new certificate:
 
 sudo mkdir /usr/share/ca-certificates/extra
